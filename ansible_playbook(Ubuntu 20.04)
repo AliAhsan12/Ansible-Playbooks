@@ -1,0 +1,82 @@
+---
+- name: Docker and Docker Compose Installation
+  hosts: all
+  become: true
+  tasks:
+    - name: Update
+      apt:
+        update_cache: true
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: latest
+        update_cache: true
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Checking For Docker
+      shell: "dpkg -l | grep docker-ce"
+      ignore_errors: true
+      register: docker_Check_Result
+
+    - name: Update apt and install docker-ce
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+      when: docker_Check_Result.rc != 0
+
+    - name: Add remote "ubuntu" user to "docker" group
+      user:
+        name: "ubuntu"
+        groups: "docker"
+        append: yes
+
+    - name: Get Docker Compose version from GitHub API
+      shell: "curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d\\\" -f4"
+      register: compose_version_output
+      changed_when: false
+      check_mode: no
+
+    - name: Extract Docker Compose version
+      set_fact:
+        COMPOSE_VERSION: "{{ compose_version_output.stdout }}"
+
+    - name: Install docker-compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/{{ COMPOSE_VERSION }}/docker-compose-Linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: 'u+x,g+x'
+
+    - name: Set COMPOSE_VERSION variable
+      shell: |
+        echo "export COMPOSE_VERSION={{ COMPOSE_VERSION }}" >> /etc/profile.d/docker_compose.sh
+      changed_when: false
+
+    - name: Download and Install Bash completion script for Docker Compose
+      shell: |
+        curl -L https://raw.githubusercontent.com/docker/compose/{{ COMPOSE_VERSION }}/contrib/completion/bash/docker-compose -o /etc/bash_completion.d/docker-compose
+      args:
+        executable: /bin/bash
+
+    - name: Load the new environment variable for COMPOSE_VERSION
+      shell: source /etc/profile.d/docker_compose.sh
+      args:
+        executable: /bin/bash
+
